@@ -281,6 +281,13 @@ async function syncConversationToSupabase(
   conversationData: ParsedConversation
 ) {
   try {
+    console.log(
+      `\n🔄 [SYNC] Starting sync process for conversation: ${conversationData.conversation_id}`
+    );
+    console.log(
+      `📊 [SYNC] Total messages to process: ${conversationData.messages.length}`
+    );
+
     const messagesToSync = conversationData.messages
       .filter((message) => message.content.trim())
       .map((message) => ({
@@ -288,19 +295,59 @@ async function syncConversationToSupabase(
         role: message.role,
         content: message.content.trim(),
         message_id: message.id, // Include the original message ID
+        created_at: new Date().toISOString(), // Add timestamp
       }));
 
+    console.log(`📊 [SYNC] Messages after filtering: ${messagesToSync.length}`);
+    console.log(
+      "🔍 [SYNC] Messages to sync:",
+      messagesToSync.map((m, i) => ({
+        index: i + 1,
+        role: m.role,
+        message_id: m.message_id,
+        contentLength: m.content.length,
+        contentPreview: m.content.substring(0, 50) + "...",
+      }))
+    );
+
     if (messagesToSync.length > 0) {
-      // Send all messages in a batch to ISOLATED world
+      // Use the new simplified message passing approach
       const message = {
-        type: "CHATGPT_SYNC",
-        payload: messagesToSync,
+        action: "saveChatData",
+        data: messagesToSync,
       };
 
-      window.postMessage(message, "*");
+      console.log(
+        "📤 [SYNC] Sending messages to background script via chrome.runtime.sendMessage..."
+      );
+      console.log(
+        "🔍 [SYNC] Message payload:",
+        JSON.stringify(message, null, 2)
+      );
+
+      // Send message directly to background script
+      chrome.runtime.sendMessage(message, (response) => {
+        if (response && response.success) {
+          console.log(
+            `✅ [SYNC] Successfully saved ${messagesToSync.length} messages to Supabase!`
+          );
+          console.log("📊 [SYNC] Response data:", response.data);
+        } else {
+          console.error(
+            `❌ [SYNC] Failed to save messages:`,
+            response?.error || "Unknown error"
+          );
+        }
+      });
+
+      console.log(
+        `✅ [SYNC] Successfully sent ${messagesToSync.length} messages to background script`
+      );
+    } else {
+      console.warn("⚠️ [SYNC] No messages to sync after filtering");
     }
   } catch (error) {
-    console.error("Error syncing to Supabase:", error);
+    console.error("❌ [SYNC] Error syncing to Supabase:", error);
   }
 }
 
