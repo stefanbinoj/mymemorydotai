@@ -1,5 +1,5 @@
 {
-  "name": "@leetboard/primary-server",
+  "name": "@mymemorydotai/primary-server",
   "type": "module",
   "main": "./dist/index.js",
   "private": true,

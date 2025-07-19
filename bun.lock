@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "leetboard",
+      "name": "mymemorydotai",
       "devDependencies": {
         "prettier": "^3.6.0",
         "turbo": "^2.5.4",
@@ -31,7 +31,7 @@
       },
     },
     "apps/web": {
-      "name": "@leetboard/web",
+      "name": "@mymemorydotai/web",
       "version": "0.1.0",
       "dependencies": {
         "next": "^15.3.0",
@@ -66,13 +66,13 @@
       },
     },
     "packages/primary-server": {
-      "name": "@leetboard/primary-server",
+      "name": "@mymemorydotai/primary-server",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/tracker-server": {
-      "name": "@leetboard/tracker-server",
+      "name": "@mymemorydotai/tracker-server",
       "devDependencies": {
         "typescript": "^5",
       },
@@ -275,11 +275,11 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.29", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-uw6guiW/gcAGPDhLmd77/6lW8QLeiV5RUTsAX46Db6oLhGaVj4lhnPwb184s1bkc8kdVg/+h988dro8GRDpmYQ=="],
 
-    "@leetboard/primary-server": ["@leetboard/primary-server@workspace:packages/primary-server"],
+    "@mymemorydotai/primary-server": ["@mymemorydotai/primary-server@workspace:packages/primary-server"],
 
-    "@leetboard/tracker-server": ["@leetboard/tracker-server@workspace:packages/tracker-server"],
+    "@mymemorydotai/tracker-server": ["@mymemorydotai/tracker-server@workspace:packages/tracker-server"],
 
-    "@leetboard/web": ["@leetboard/web@workspace:apps/web"],
+    "@mymemorydotai/web": ["@mymemorydotai/web@workspace:apps/web"],
 
     "@next/env": ["@next/env@15.4.2", "", {}, "sha512-kd7MvW3pAP7tmk1NaiX4yG15xb2l4gNhteKQxt3f+NGR22qwPymn9RBuv26QKfIKmfo6z2NpgU8W2RT0s0jlvg=="],
 

@@ -1,5 +1,5 @@
 {
-  "name": "leetboard",
+  "name": "mymemorydotai",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -7,10 +7,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build:extension": "turbo run build --filter=@leetboard/extension",
-    "dev:tracker-server": "turbo run dev --filter=@leetboard/tracker-server",
+    "build:extension": "turbo run build --filter=@mymemorydotai/extension",
+    "dev:tracker-server": "turbo run dev --filter=@mymemorydotai/tracker-server",
     "dev:extension": "bun run dev:tracker-server && bun run build:extension",
-    "dev:website": "turbo run dev --filter=@leetboard/web --filter=@leetboard/primary-server --parallel",
+    "dev:website": "turbo run dev --filter=@mymemorydotai/web --filter=@mymemorydotai/primary-server --parallel",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "clean": "turbo run clean",

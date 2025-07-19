@@ -1,5 +1,5 @@
 {
-  "name": "@leetboard/tracker-server",
+  "name": "@mymemorydotai/tracker-server",
   "type": "module",
   "main": "./dist/index.js",
   "private": true,
