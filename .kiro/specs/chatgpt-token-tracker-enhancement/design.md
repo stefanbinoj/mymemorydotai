@@ -12,9 +12,20 @@ The system will be restructured into distinct layers: Core Services, Storage Ada
 
 ```mermaid
 graph TB
+    subgraph "DevTools Layer"
+        DT[DevTools Script]
+        NI[Network Interceptor]
+    end
+
     subgraph "Content Script Layer"
         CS[Content Script]
         TI[Tracker Initializer]
+        UI[UI Manager]
+    end
+
+    subgraph "Background Script Layer"
+        BS[Background Script]
+        MI[Message Interface]
     end
 
     subgraph "Core Services"
@@ -22,6 +33,7 @@ graph TB
         SS[Session Service]
         US[UI Service]
         SY[Sync Service]
+        AS[API Service]
     end
 
     subgraph "Storage Layer"
@@ -41,13 +53,19 @@ graph TB
         SC[Sync Config]
     end
 
+    DT --> NI
+    NI --> BS
+    BS --> MI
+    MI --> CS
     CS --> TI
     TI --> TS
     TI --> SS
     TI --> US
+    TI --> AS
     TS --> SA
     SS --> SA
     SY --> SA
+    AS --> SA
     US --> WF
     WF --> WC
     WF --> TC
@@ -56,6 +74,7 @@ graph TB
     SA --> SBA
     CM --> SC
     SY --> CM
+    CS --> UI
 ```
 
 ### Module Dependencies
@@ -68,6 +87,117 @@ The system will use a dependency injection container to manage module relationsh
 - **Configuration** is injected into services that need it
 
 ## Components and Interfaces
+
+### 0. DOM Extraction Layer
+
+#### DOM Parser and Monitor
+
+The extension will use DOM extraction instead of API interception for more reliable and stable data capture:
+
+```typescript
+// DOM extraction approach
+interface ParsedMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: string;
+}
+
+interface ParsedConversation {
+  conversation_id: string;
+  title?: string;
+  messages: ParsedMessage[];
+}
+
+export function parseChatGPTFromDOM(): ParsedConversation | null {
+  // Extract conversation ID from URL
+  const url = window.location.href;
+  const conversationId = url.match(/\/c\/([a-f0-9-]+)/)?.[1];
+
+  if (!conversationId) return null;
+
+  // Extract conversation turns from DOM
+  const conversationTurns = document.querySelectorAll(
+    '[data-testid^="conversation-turn"]'
+  );
+  const messages: ParsedMessage[] = [];
+
+  conversationTurns.forEach((turn, index) => {
+    const messageContainer = turn.querySelector("[data-message-author-role]");
+    if (!messageContainer) return;
+
+    const role = messageContainer.getAttribute("data-message-author-role") as
+      | "user"
+      | "assistant";
+    const messageId =
+      messageContainer.getAttribute("data-message-id") || `turn-${index}`;
+
+    let content = "";
+    if (role === "user") {
+      const userContent = messageContainer.querySelector(
+        ".whitespace-pre-wrap"
+      );
+      content = userContent?.textContent?.trim() || "";
+    } else if (role === "assistant") {
+      const assistantContent = messageContainer.querySelector(
+        '.markdown.prose, [class*="markdown"], [class*="prose"]'
+      );
+      content = assistantContent
+        ? extractAssistantContent(assistantContent)
+        : "";
+    }
+
+    if (content && content.length > 0) {
+      messages.push({ id: messageId, role, content });
+    }
+  });
+
+  return {
+    conversation_id: conversationId,
+    title:
+      document.querySelector("title")?.textContent?.replace(" | ChatGPT", "") ||
+      undefined,
+    messages,
+  };
+}
+```
+
+#### DOM Mutation Observer
+
+```typescript
+function initializeDOMMonitor() {
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === "childList") {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node as Element;
+            if (
+              element.matches('[data-testid^="conversation-turn"]') ||
+              element.querySelector('[data-testid^="conversation-turn"]')
+            ) {
+              debounceExtractConversation();
+            }
+          }
+        });
+      }
+    });
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+}
+```
+
+#### Benefits of DOM Extraction
+
+- **More Stable**: Not affected by API changes or network request modifications
+- **Simpler Architecture**: No need for DevTools scripts or background message passing
+- **Real-time Updates**: Captures content as it appears to the user
+- **Better Performance**: Direct DOM access without network overhead
+- **Reliable Content**: Gets exactly what the user sees, including formatted content
 
 ### 1. Storage Layer
 
@@ -104,7 +234,19 @@ interface IStorageAdapter {
 interface ITokenService {
   countTokens(text: string): number;
   calculateUsage(messages: ChatMessage[]): TokenUsage;
-  updateUsageFromDOM(): Promise<TokenUsage>;
+  processApiResponse(responseData: any): Promise<TokenUsage>;
+}
+```
+
+#### IDOMService Interface
+
+```typescript
+interface IDOMService {
+  parseChatGPTFromDOM(): ParsedConversation | null;
+  initializeDOMMonitor(): void;
+  extractConversationId(): string | null;
+  extractMessages(): ParsedMessage[];
+  extractAssistantContent(element: Element): string;
 }
 ```
 
@@ -289,28 +431,36 @@ interface ExtensionError {
 
 ## Implementation Phases
 
-### Phase 1: Core Refactoring
+### Phase 1: DOM Extraction Migration
+
+- Replace API interception with DOM extraction
+- Create DOM parsing utilities for conversation data
+- Implement DOM mutation observer for real-time updates
+- Update content script to use DOM-based data extraction
+- Maintain backward compatibility during transition
+
+### Phase 2: Core Refactoring
 
 - Extract existing functionality into service interfaces
 - Implement dependency injection container
 - Create local storage adapter from existing code
-- Maintain full backward compatibility
+- Integrate new API service for response processing
 
-### Phase 2: UI Enhancement
+### Phase 3: UI Enhancement
 
 - Create modular widget component
 - Implement sync toggle in popup
 - Add error notification system
 - Improve visual design and responsiveness
 
-### Phase 3: Supabase Integration
+### Phase 4: Supabase Integration
 
 - Implement Supabase storage adapter
 - Create sync service with offline support
 - Add configuration management
 - Implement error handling and retry logic
 
-### Phase 4: Testing & Polish
+### Phase 5: Testing & Polish
 
 - Comprehensive test suite implementation
 - Performance optimization

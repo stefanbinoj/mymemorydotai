@@ -7,5 +7,6 @@ export default defineConfig({
   outDir: "dist",
   manifest: {
     permissions: ["storage"],
+    host_permissions: ["https://*.supabase.co/*"],
   },
 });
