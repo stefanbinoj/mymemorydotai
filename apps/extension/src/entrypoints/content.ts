@@ -1,52 +1,46 @@
 import { supabaseClient } from "@/client/supabase";
-import { countTokens } from "@/core/utils";
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  conversation_id?: string;
-}
+import { parseChatGPTResponse } from "@/core/parser";
 
 export default defineContentScript({
   matches: ["https://chat.openai.com/*", "https://chatgpt.com/*"],
   main() {
     console.log("Token tracker started");
 
-    // Initialize chat history sync
-    initializeChatHistorySync();
+    // Initialize chat history sync by monitoring network requests
+    initializeChatHistoryMonitor();
   },
 });
 
-function initializeChatHistorySync() {
-  // Intercept fetch requests to ChatGPT API
+function initializeChatHistoryMonitor() {
   const originalFetch = window.fetch;
 
   window.fetch = async function (...args) {
-    const [resource, config] = args;
-    const url = typeof resource === "string" ? resource : resource.url;
+    const [resource] = args;
+    console.log("[resources] : \n", resource);
+    const url =
+      typeof resource === "string" ? resource : (resource as Request).url;
 
-    // Check if this is a ChatGPT conversation API call
+    console.log("[url] : \n", url);
+    // Only monitor GET requests to past conversation history
     if (
-      url.includes("/backend-api/conversation") ||
-      url.includes("/api/conversation")
+      url.includes("chatgpt.com/backend-api/conversation/") &&
+      url.match(/\/conversation\/[a-f0-9-]+$/)
     ) {
       try {
         const response = await originalFetch.apply(this, args);
-        const clonedResponse = response.clone();
+        console.log("[response] : \n", response);
 
-        // Handle the request (user message)
-        if (config?.method === "POST" && config?.body) {
-          await handleChatRequest(config.body, url);
-        }
-
-        // Handle the response (assistant message)
         if (response.ok) {
-          handleChatResponse(clonedResponse, url);
+          // Wait a bit and then process the response
+          setTimeout(async () => {
+            const clonedResponse = response.clone();
+            await processChatHistoryResponse(clonedResponse);
+          }, 100);
         }
 
         return response;
       } catch (error) {
-        console.error("Error intercepting ChatGPT API:", error);
+        console.error("Error monitoring chat history request:", error);
         return originalFetch.apply(this, args);
       }
     }
@@ -55,117 +49,42 @@ function initializeChatHistorySync() {
   };
 }
 
-async function handleChatRequest(requestBody: BodyInit, url: string) {
+async function processChatHistoryResponse(response: Response) {
   try {
-    const bodyText =
-      typeof requestBody === "string"
-        ? requestBody
-        : await new Response(requestBody).text();
-    const requestData = JSON.parse(bodyText);
+    const responseData = await response.json();
 
-    // Extract conversation ID from URL or request data
-    const conversationId = extractConversationId(url, requestData);
+    // Use the modular parser to extract conversation data
+    const parsedConversation = parseChatGPTResponse(responseData);
 
-    // Extract user message from request
-    if (requestData.messages && Array.isArray(requestData.messages)) {
-      const lastMessage = requestData.messages[requestData.messages.length - 1];
-      if (lastMessage && lastMessage.role === "user") {
+    if (!parsedConversation) {
+      console.log("No valid conversation data found");
+      return;
+    }
+
+    // Sync all messages to Supabase
+    for (const message of parsedConversation.allMessages) {
+      if (message.content.trim()) {
         await syncMessageToSupabase({
-          role: "user",
-          content: lastMessage.content,
-          conversation_id: conversationId,
+          conversation_id: parsedConversation.conversation_id,
+          role: message.role,
+          content: message.content.trim(),
         });
       }
     }
+
+    console.log(
+      `Synced ${parsedConversation.allMessages.length} messages for conversation ${parsedConversation.conversation_id}`
+    );
   } catch (error) {
-    console.error("Error handling chat request:", error);
+    console.error("Error processing chat history response:", error);
   }
 }
 
-async function handleChatResponse(response: Response, url: string) {
-  try {
-    const responseText = await response.text();
-
-    // ChatGPT responses are often streamed, so we need to handle both regular JSON and SSE format
-    if (responseText.includes("data: ")) {
-      // Handle Server-Sent Events format
-      const lines = responseText.split("\n");
-      let assistantMessage = "";
-      let conversationId = "";
-
-      for (const line of lines) {
-        if (line.startsWith("data: ") && line !== "data: [DONE]") {
-          try {
-            const data = JSON.parse(line.slice(6));
-
-            // Extract conversation ID
-            if (data.conversation_id) {
-              conversationId = data.conversation_id;
-            }
-
-            // Extract message content
-            if (data.message?.content?.parts) {
-              assistantMessage = data.message.content.parts.join("");
-            }
-          } catch (e) {
-            // Skip malformed JSON lines
-          }
-        }
-      }
-
-      if (assistantMessage && conversationId) {
-        await syncMessageToSupabase({
-          role: "assistant",
-          content: assistantMessage,
-          conversation_id: conversationId,
-        });
-      }
-    } else {
-      // Handle regular JSON response
-      try {
-        const responseData = JSON.parse(responseText);
-        const conversationId = extractConversationId(url, responseData);
-
-        if (responseData.message?.content?.parts) {
-          const content = responseData.message.content.parts.join("");
-          await syncMessageToSupabase({
-            role: "assistant",
-            content: content,
-            conversation_id: conversationId,
-          });
-        }
-      } catch (e) {
-        console.error("Error parsing response JSON:", e);
-      }
-    }
-  } catch (error) {
-    console.error("Error handling chat response:", error);
-  }
-}
-
-function extractConversationId(url: string, data: any): string {
-  // Try to extract from URL first
-  const urlMatch = url.match(/\/conversation\/([^\/\?]+)/);
-  if (urlMatch) {
-    return urlMatch[1];
-  }
-
-  // Try to extract from data
-  if (data?.conversation_id) {
-    return data.conversation_id;
-  }
-
-  // Fallback to current URL path
-  const pathMatch = window.location.pathname.match(/\/c\/([^\/]+)/);
-  if (pathMatch) {
-    return pathMatch[1];
-  }
-
-  // Generate a fallback ID based on current session
-  return `session_${Date.now()}`;
-}
-
-async function syncMessageToSupabase(message: ChatMessage) {
+async function syncMessageToSupabase(message: {
+  conversation_id: string;
+  role: string;
+  content: string;
+}) {
   try {
     const { data, error } = await supabaseClient
       .from("chat_messages")
@@ -173,7 +92,7 @@ async function syncMessageToSupabase(message: ChatMessage) {
         {
           conversation_id: message.conversation_id,
           role: message.role,
-          content: message.content.trim(),
+          content: message.content,
         },
       ])
       .single();
