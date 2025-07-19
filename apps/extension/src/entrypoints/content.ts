@@ -1,4 +1,4 @@
-import { countTokens, getSessionId, saveData, loadData } from "../utils";
+import { countTokens, getSessionId } from "../core/utils";
 
 export default defineContentScript({
   matches: ["https://chat.openai.com/*", "https://chatgpt.com/*"],
