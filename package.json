@@ -1,0 +1,28 @@
+{
+  "name": "leetboard",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:extension": "turbo run build --filter=@leetboard/extension",
+    "dev:tracker-server": "turbo run dev --filter=@leetboard/tracker-server",
+    "dev:extension": "bun run dev:tracker-server && bun run build:extension",
+    "dev:website": "turbo run dev --filter=@leetboard/web --filter=@leetboard/primary-server --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.6.0",
+    "turbo": "^2.5.4",
+    "typescript": "5.8.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "bun@1.2.18"
+}
