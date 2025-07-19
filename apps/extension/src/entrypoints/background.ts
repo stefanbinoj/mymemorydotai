@@ -1,4 +1,4 @@
-import { supabaseClient } from "@/client/supabase";
+import { supabaseService, type ChatMessage } from "@/services/supabase";
 
 export default defineBackground({
   main() {
@@ -45,7 +45,7 @@ export default defineBackground({
               "🧪 [BACKGROUND] Test completed, sending response:",
               result
             );
-            sendResponse({ success: true, data: result });
+            sendResponse(result);
           })
           .catch((error) => {
             console.error("🧪 [BACKGROUND] Test failed, sending error:", error);
@@ -62,7 +62,7 @@ export default defineBackground({
               "🔄 [BACKGROUND] Sync completed, sending response:",
               result
             );
-            sendResponse({ success: true, data: result });
+            sendResponse(result);
           })
           .catch((error) => {
             console.error("🔄 [BACKGROUND] Sync failed, sending error:", error);
@@ -71,7 +71,7 @@ export default defineBackground({
         return true; // Keep the message channel open for async response
       }
 
-      // New simplified message handler for saveChatData action
+      // Unified message handler for saveChatData action
       if (message.action === "saveChatData") {
         console.log("💾 [BACKGROUND] Processing saveChatData action");
         handleSaveChatData(message.data)
@@ -80,7 +80,7 @@ export default defineBackground({
               "💾 [BACKGROUND] Save completed, sending response:",
               result
             );
-            sendResponse({ success: true, data: result });
+            sendResponse(result);
           })
           .catch((error) => {
             console.error("💾 [BACKGROUND] Save failed, sending error:", error);
@@ -89,7 +89,32 @@ export default defineBackground({
         return true; // Keep the message channel open for async response
       }
 
+      // Unified handler for Supabase operations
+      if (message.type === "SUPABASE_OPERATION") {
+        console.log(
+          "🔧 [BACKGROUND] Processing Supabase operation:",
+          message.action
+        );
+        handleSupabaseOperation(message)
+          .then((result) => {
+            console.log(
+              "🔧 [BACKGROUND] Operation completed, sending response:",
+              result
+            );
+            sendResponse(result);
+          })
+          .catch((error) => {
+            console.error(
+              "🔧 [BACKGROUND] Operation failed, sending error:",
+              error
+            );
+            sendResponse({ success: false, error: error.message });
+          });
+        return true; // Keep the message channel open for async response
+      }
+
       console.log("❌ [BACKGROUND] Unknown message type:", message.type);
+      console.log("❌ [BACKGROUND] Unknown message action:", message.action);
       sendResponse({ success: false, error: "Unknown message type" });
       return false;
     });
@@ -98,57 +123,11 @@ export default defineBackground({
 
 async function testSupabaseConnection() {
   try {
-    console.log("🧪 [BACKGROUND] Testing Supabase connection...");
-    console.log("🧪 [BACKGROUND] Supabase client:", !!supabaseClient);
-    console.log("🧪 [BACKGROUND] Environment check:", {
-      hasUrl: !!import.meta.env.WXT_APP_SUPABASE_URL,
-      hasKey: !!import.meta.env.WXT_APP_SUPABASE_ANON_KEY,
-      url: import.meta.env.WXT_APP_SUPABASE_URL?.substring(0, 30) + "...",
-    });
-
-    // Test basic connection first
-    console.log("🧪 [BACKGROUND] Testing basic connection...");
-    const { data, error } = await supabaseClient
-      .from("chat_messages")
-      .select("count", { count: "exact", head: true });
-
-    if (error) {
-      console.error("❌ [BACKGROUND] Supabase connection failed:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      });
-      return { success: false, error: error.message, details: error };
-    }
-
-    console.log("✅ [BACKGROUND] Supabase connection successful!");
-    console.log("📊 [BACKGROUND] Table info:", { count: data });
-
-    // Test table structure by trying to select one row
-    console.log("🧪 [BACKGROUND] Testing table structure...");
-    const { data: sampleData, error: sampleError } = await supabaseClient
-      .from("chat_messages")
-      .select("*")
-      .limit(1);
-
-    if (sampleError) {
-      console.warn("⚠️ [BACKGROUND] Could not fetch sample data:", {
-        message: sampleError.message,
-        details: sampleError.details,
-        hint: sampleError.hint,
-        code: sampleError.code,
-      });
-    } else {
-      console.log("📊 [BACKGROUND] Sample data structure:", sampleData);
-    }
-
-    return {
-      success: true,
-      message: "Supabase connection working!",
-      tableExists: !error,
-      sampleData: sampleData,
-    };
+    console.log(
+      "🧪 [BACKGROUND] Testing Supabase connection using unified service..."
+    );
+    const result = await supabaseService.testConnection();
+    return result;
   } catch (error) {
     console.error("❌ [BACKGROUND] Supabase test failed:", error);
     return {
@@ -166,160 +145,117 @@ async function handleSyncMessage(message: {
   message_id?: string;
 }) {
   try {
-    console.log("🔍 [BACKGROUND] Starting to sync message to Supabase:", {
-      conversation_id: message.conversation_id,
-      message_id: message.message_id,
-      role: message.role,
-      contentLength: message.content.length,
-      contentPreview: message.content.substring(0, 50),
-    });
+    console.log(
+      "🔍 [BACKGROUND] Starting to sync message using unified service:",
+      {
+        conversation_id: message.conversation_id,
+        message_id: message.message_id,
+        role: message.role,
+        contentLength: message.content.length,
+        contentPreview: message.content.substring(0, 50),
+      }
+    );
 
-    // Validate required fields
-    if (!message.conversation_id || !message.role || !message.content) {
-      throw new Error(
-        "Missing required fields: conversation_id, role, or content"
-      );
-    }
-
-    console.log("🔍 [BACKGROUND] Preparing Supabase upsert data...");
-    const upsertData = {
+    // Convert to ChatMessage format
+    const chatMessage: ChatMessage = {
       conversation_id: message.conversation_id,
       message_id:
         message.message_id || `${message.conversation_id}-${Date.now()}`,
-      role: message.role,
+      role: message.role as "user" | "assistant",
       content: message.content,
       created_at: new Date().toISOString(),
     };
 
-    console.log(
-      "🔍 [BACKGROUND] Full upsert data:",
-      JSON.stringify(upsertData, null, 2)
-    );
+    // Use unified service for upsert
+    const result = await supabaseService.upsertChatMessages(chatMessage);
 
-    console.log("🔍 [BACKGROUND] Testing Supabase connection...");
-
-    // First, test the connection by trying to select from the table
-    const { data: testData, error: testError } = await supabaseClient
-      .from("chat_messages")
-      .select("count", { count: "exact", head: true });
-
-    if (testError) {
-      console.error(
-        "❌ [BACKGROUND] Supabase connection test failed:",
-        testError
-      );
-      throw new Error(`Supabase connection failed: ${testError.message}`);
-    }
-
-    console.log("✅ [BACKGROUND] Supabase connection successful, table exists");
-
-    console.log("🔍 [BACKGROUND] Calling Supabase upsert...");
-    const { data, error } = await supabaseClient
-      .from("chat_messages")
-      .upsert([upsertData], {
-        onConflict: "conversation_id,message_id",
-      })
-      .select();
-
-    console.log("🔍 [BACKGROUND] Supabase upsert response:", {
-      data: data,
-      error: error,
-      hasData: !!data,
-      dataLength: data?.length || 0,
-    });
-
-    if (error) {
-      console.error("❌ [BACKGROUND] Supabase upsert error:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      });
-      throw new Error(`Supabase error: ${error.message} (${error.code})`);
-    }
-
-    if (!data || data.length === 0) {
-      console.warn("⚠️ [BACKGROUND] Upsert succeeded but no data returned");
+    if (!result.success) {
+      throw new Error(result.error || "Upsert failed");
     }
 
     console.log(
       `✅ [BACKGROUND] Successfully synced ${message.role} message to Supabase!`
     );
-    console.log("📊 [BACKGROUND] Synced data:", data);
 
     return {
       success: true,
-      data: data,
+      data: result.data,
       message: `Successfully synced ${message.role} message`,
     };
   } catch (error) {
-    console.error("❌ [BACKGROUND] Error syncing message:", {
-      error: error,
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
+    console.error("❌ [BACKGROUND] Error syncing message:", error);
     throw error;
   }
 }
 
-// New simplified function to handle saveChatData action
+// Unified function to handle saveChatData action using the service
 async function handleSaveChatData(data: any) {
   try {
-    console.log("💾 [BACKGROUND] Starting to save chat data to Supabase:", {
-      dataType: typeof data,
-      isArray: Array.isArray(data),
-      length: Array.isArray(data) ? data.length : "N/A",
+    console.log(
+      "💾 [BACKGROUND] Starting to save chat data using unified service:",
+      {
+        dataType: typeof data,
+        isArray: Array.isArray(data),
+        length: Array.isArray(data) ? data.length : "N/A",
+      }
+    );
+
+    // Use unified service for insert
+    const result = await supabaseService.insertChatMessages(data);
+
+    if (!result.success) {
+      throw new Error(result.error || "Insert failed");
+    }
+
+    const count = Array.isArray(data) ? data.length : 1;
+    console.log(
+      `✅ [BACKGROUND] Successfully saved ${count} message(s) to Supabase!`
+    );
+
+    return {
+      success: true,
+      data: result.data,
+      message: `Successfully saved ${count} message(s)`,
+    };
+  } catch (error) {
+    console.error("❌ [BACKGROUND] Error saving chat data:", error);
+    throw error;
+  }
+}
+
+// Unified handler for all Supabase operations
+async function handleSupabaseOperation(message: {
+  type: string;
+  action: string;
+  data: any;
+  requestId?: string;
+}) {
+  try {
+    console.log("🔧 [BACKGROUND] Processing Supabase operation:", {
+      action: message.action,
+      hasData: !!message.data,
+      requestId: message.requestId,
     });
 
-    // If data is an array, insert all messages
-    if (Array.isArray(data)) {
-      console.log(
-        `💾 [BACKGROUND] Processing ${data.length} messages for batch insert`
-      );
+    switch (message.action) {
+      case "insert":
+        return await supabaseService.insertChatMessages(message.data);
 
-      const { data: result, error } = await supabaseClient
-        .from("chat_messages")
-        .insert(data);
+      case "upsert":
+        return await supabaseService.upsertChatMessages(message.data);
 
-      if (error) {
-        console.error("❌ [BACKGROUND] Batch insert error:", error);
-        throw error;
-      }
+      case "query":
+        const { conversationId, options } = message.data;
+        return await supabaseService.queryChatHistory(conversationId, options);
 
-      console.log(
-        `✅ [BACKGROUND] Successfully saved ${data.length} messages to Supabase!`
-      );
-      return {
-        success: true,
-        data: result,
-        message: `Successfully saved ${data.length} messages`,
-      };
-    } else {
-      // Single message insert
-      console.log("💾 [BACKGROUND] Processing single message insert");
+      case "test":
+        return await supabaseService.testConnection();
 
-      const { data: result, error } = await supabaseClient
-        .from("chat_messages")
-        .insert(data);
-
-      if (error) {
-        console.error("❌ [BACKGROUND] Single insert error:", error);
-        throw error;
-      }
-
-      console.log("✅ [BACKGROUND] Successfully saved message to Supabase!");
-      return {
-        success: true,
-        data: result,
-        message: "Successfully saved message",
-      };
+      default:
+        throw new Error(`Unknown Supabase operation: ${message.action}`);
     }
   } catch (error) {
-    console.error("❌ [BACKGROUND] Error saving chat data:", {
-      error: error,
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
+    console.error("❌ [BACKGROUND] Supabase operation failed:", error);
     throw error;
   }
 }

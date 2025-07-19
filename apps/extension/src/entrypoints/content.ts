@@ -1,4 +1,8 @@
-import { extractAndSyncConversation, parseChatGPTFromDOM } from "@/core/parser";
+import {
+  extractAndSyncConversation,
+  parseChatGPTFromDOM,
+  syncConversationWithPostRequest,
+} from "@/core/parser";
 
 // MAIN world script for DOM access
 export default defineContentScript({
@@ -92,7 +96,7 @@ function debounceExtractConversation() {
   extractTimeout = setTimeout(extractAndSyncConversation, 1500);
 }
 
-// New simplified sync function using direct background script communication
+// New simplified sync function using ISOLATED world communication
 async function syncChatDataToSupabase() {
   try {
     console.log("🔄 [SIMPLE-SYNC] Starting simplified sync process...");
@@ -121,26 +125,23 @@ async function syncChatDataToSupabase() {
     console.log(`📊 [SIMPLE-SYNC] Messages to sync: ${messagesToSync.length}`);
 
     if (messagesToSync.length > 0) {
-      // Send data to background script using the new approach
-      chrome.runtime.sendMessage(
-        {
+      // Send data to ISOLATED world using the new approach
+      const message = {
+        type: "CHATGPT_SAVE_DATA",
+        payload: {
           action: "saveChatData",
           data: messagesToSync,
         },
-        (response: any) => {
-          if (response && response.success) {
-            console.log(
-              `✅ [SIMPLE-SYNC] Successfully saved ${messagesToSync.length} messages to Supabase!`
-            );
-            console.log("📊 [SIMPLE-SYNC] Response:", response.data);
-          } else {
-            console.error(
-              `❌ [SIMPLE-SYNC] Failed to save messages:`,
-              response?.error || "Unknown error"
-            );
-          }
-        }
+      };
+
+      console.log("📤 [SIMPLE-SYNC] Sending messages to ISOLATED world...");
+      console.log(
+        "🔍 [SIMPLE-SYNC] Message payload:",
+        JSON.stringify(message, null, 2)
       );
+
+      window.postMessage(message, "*");
+      console.log("✅ [SIMPLE-SYNC] Message sent to ISOLATED world");
     } else {
       console.warn("⚠️ [SIMPLE-SYNC] No messages to sync after filtering");
     }
@@ -191,6 +192,20 @@ function addManualSyncButton() {
   `;
   simpleSyncButton.onclick = syncChatDataToSupabase;
 
+  // POST sync button (direct API calls)
+  const postSyncButton = document.createElement("button");
+  postSyncButton.textContent = "📤 POST Sync";
+  postSyncButton.style.cssText = `
+    background: #8b5cf6;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  `;
+  postSyncButton.onclick = syncConversationWithPostRequest;
+
   // Test Supabase button
   const testButton = document.createElement("button");
   testButton.textContent = "🧪 Test DB";
@@ -207,6 +222,7 @@ function addManualSyncButton() {
 
   container.appendChild(syncButton);
   container.appendChild(simpleSyncButton);
+  container.appendChild(postSyncButton);
   container.appendChild(testButton);
   document.body.appendChild(container);
 }

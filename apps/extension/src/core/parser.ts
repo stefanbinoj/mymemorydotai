@@ -311,37 +311,25 @@ async function syncConversationToSupabase(
     );
 
     if (messagesToSync.length > 0) {
-      // Use the new simplified message passing approach
+      // Send all messages in a batch to ISOLATED world
       const message = {
-        action: "saveChatData",
-        data: messagesToSync,
+        type: "CHATGPT_SYNC",
+        payload: messagesToSync,
       };
 
       console.log(
-        "📤 [SYNC] Sending messages to background script via chrome.runtime.sendMessage..."
+        "📤 [SYNC] Sending messages to ISOLATED world via postMessage..."
       );
       console.log(
         "🔍 [SYNC] Message payload:",
         JSON.stringify(message, null, 2)
       );
 
-      // Send message directly to background script
-      chrome.runtime.sendMessage(message, (response) => {
-        if (response && response.success) {
-          console.log(
-            `✅ [SYNC] Successfully saved ${messagesToSync.length} messages to Supabase!`
-          );
-          console.log("📊 [SYNC] Response data:", response.data);
-        } else {
-          console.error(
-            `❌ [SYNC] Failed to save messages:`,
-            response?.error || "Unknown error"
-          );
-        }
-      });
+      window.postMessage(message, "*");
+      console.log("🔍 [SYNC] Message sent to ISOLATED world via postMessage");
 
       console.log(
-        `✅ [SYNC] Successfully sent ${messagesToSync.length} messages to background script`
+        `✅ [SYNC] Successfully sent ${messagesToSync.length} messages to ISOLATED world`
       );
     } else {
       console.warn("⚠️ [SYNC] No messages to sync after filtering");
@@ -660,4 +648,158 @@ function printExtractedConversation(conversation: ParsedConversation): void {
   console.log("\n" + "=".repeat(80));
   console.log("✅ EXTRACTION COMPLETE");
   console.log("=".repeat(80) + "\n");
+}
+
+// Simple POST request function to Supabase REST API
+async function postToSupabase(data: any) {
+  const SUPABASE_URL =
+    "https://rpqodqmuvyuudsawpjlf.supabase.co/rest/v1/chat_messages";
+  const SUPABASE_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwcW9kcW11dnl1dWRzYXdwamxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI5MzIzMjEsImV4cCI6MjA2ODUwODMyMX0.XFRTlLSfY6kbp-eScXOAwqZaDLVjaCA";
+
+  try {
+    console.log("📤 [POST] Sending POST request to Supabase:", {
+      url: SUPABASE_URL,
+      dataType: typeof data,
+      isArray: Array.isArray(data),
+      length: Array.isArray(data) ? data.length : "N/A",
+    });
+
+    const response = await fetch(SUPABASE_URL, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(data),
+    });
+
+    console.log("📨 [POST] Response status:", response.status);
+    console.log(
+      "📨 [POST] Response headers:",
+      Object.fromEntries(response.headers.entries())
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ [POST] HTTP error:", response.status, errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log("✅ [POST] Success response:", result);
+    return result;
+  } catch (error) {
+    console.error("❌ [POST] Request failed:", error);
+    throw error;
+  }
+}
+
+// New function to sync using POST requests via background script
+export async function syncConversationWithPostRequest(): Promise<void> {
+  try {
+    console.log("🔄 [POST-SYNC] Starting POST-based sync...");
+
+    const conversationData = parseChatGPTFromDOM();
+
+    if (!conversationData || conversationData.messages.length === 0) {
+      console.warn("⚠️ [POST-SYNC] No conversation data found");
+      return;
+    }
+
+    console.log(
+      `📊 [POST-SYNC] Found ${conversationData.messages.length} messages`
+    );
+
+    const messagesToSync = conversationData.messages
+      .filter((message) => message.content.trim())
+      .map((message) => ({
+        conversation_id: conversationData.conversation_id,
+        role: message.role,
+        content: message.content.trim(),
+        message_id: message.id,
+        created_at: new Date().toISOString(),
+      }));
+
+    console.log(`📊 [POST-SYNC] Messages to sync: ${messagesToSync.length}`);
+
+    if (messagesToSync.length > 0) {
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Send each message individually via background script
+      for (let i = 0; i < messagesToSync.length; i++) {
+        const message = messagesToSync[i];
+        console.log(
+          `📤 [POST-SYNC] Sending message ${i + 1}/${messagesToSync.length}:`,
+          {
+            role: message.role,
+            message_id: message.message_id,
+            contentLength: message.content.length,
+            contentPreview: message.content.substring(0, 50) + "...",
+          }
+        );
+
+        try {
+          // Send to background script via ISOLATED world
+          const messageToSend = {
+            type: "CHATGPT_POST_REQUEST",
+            payload: {
+              action: "postToSupabase",
+              data: message,
+            },
+          };
+
+          console.log(
+            "📤 [POST-SYNC] Sending to ISOLATED world:",
+            messageToSend
+          );
+          window.postMessage(messageToSend, "*");
+
+          // Note: We can't get the response directly from MAIN world
+          // The background script will handle the POST request
+          successCount++;
+          console.log(
+            `✅ [POST-SYNC] Message ${i + 1} sent to background script`
+          );
+        } catch (error) {
+          errorCount++;
+          console.error(`❌ [POST-SYNC] Message ${i + 1} failed:`, error);
+        }
+
+        // Add a small delay between requests
+        if (i < messagesToSync.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      console.log(`\n📊 [POST-SYNC] Sync Summary:`);
+      console.log(`✅ Sent to background: ${successCount}`);
+      console.log(`❌ Failed: ${errorCount}`);
+      console.log(`📊 Total: ${messagesToSync.length}`);
+
+      if (successCount === messagesToSync.length) {
+        console.log(
+          `🎉 [POST-SYNC] All ${messagesToSync.length} messages sent to background script!`
+        );
+        console.log(
+          "📤 [POST-SYNC] Check background script logs for POST results"
+        );
+      } else if (successCount > 0) {
+        console.log(
+          `⚠️ [POST-SYNC] Partial send: ${successCount}/${messagesToSync.length} messages sent`
+        );
+      } else {
+        console.error(
+          `💥 [POST-SYNC] Send failed: 0/${messagesToSync.length} messages sent`
+        );
+      }
+    } else {
+      console.warn("⚠️ [POST-SYNC] No messages to sync after filtering");
+    }
+  } catch (error) {
+    console.error("❌ [POST-SYNC] Error in POST-based sync:", error);
+  }
 }

@@ -26,6 +26,18 @@ export default defineContentScript({
         return;
       }
 
+      if (event.data.type === "CHATGPT_SAVE_DATA") {
+        console.log("📨 [ISOLATED] Received save data request from MAIN world");
+        handleSaveDataRequest(event.data.payload);
+        return;
+      }
+
+      if (event.data.type === "CHATGPT_POST_REQUEST") {
+        console.log("📨 [ISOLATED] Received POST request from MAIN world");
+        handlePostRequest(event.data.payload);
+        return;
+      }
+
       if (event.data.type === "CHATGPT_TEST_SUPABASE") {
         console.log(
           "🧪 [ISOLATED] Received Supabase test request from MAIN world"
@@ -196,5 +208,90 @@ async function handleSupabaseTest() {
     }
   } catch (error) {
     console.error("❌ [ISOLATED] Error testing Supabase connection:", error);
+  }
+}
+
+// New function to handle save data requests
+async function handleSaveDataRequest(payload: { action: string; data: any }) {
+  try {
+    console.log("💾 [ISOLATED] Processing save data request:", {
+      action: payload.action,
+      dataType: typeof payload.data,
+      isArray: Array.isArray(payload.data),
+      length: Array.isArray(payload.data) ? payload.data.length : "N/A",
+    });
+
+    if (payload.action === "saveChatData") {
+      console.log(
+        `💾 [ISOLATED] Sending ${payload.data.length} messages to background script`
+      );
+
+      const response = await chrome.runtime.sendMessage({
+        action: "saveChatData",
+        data: payload.data,
+      });
+
+      console.log("📨 [ISOLATED] Background script response:", response);
+
+      if (response && response.success) {
+        console.log(
+          `✅ [ISOLATED] Successfully saved ${payload.data.length} messages to Supabase!`
+        );
+        if (response.data) {
+          console.log("📊 [ISOLATED] Supabase response data:", response.data);
+        }
+      } else {
+        console.error(
+          "❌ [ISOLATED] Failed to save messages:",
+          response?.error || "Unknown error"
+        );
+      }
+    } else {
+      console.error("❌ [ISOLATED] Unknown action:", payload.action);
+    }
+  } catch (error) {
+    console.error("❌ [ISOLATED] Error handling save data request:", error);
+  }
+}
+
+// New function to handle POST requests
+async function handlePostRequest(payload: { action: string; data: any }) {
+  try {
+    console.log("📤 [ISOLATED] Processing POST request:", {
+      action: payload.action,
+      dataType: typeof payload.data,
+      data: payload.data,
+    });
+
+    if (payload.action === "postToSupabase") {
+      console.log("📤 [ISOLATED] Sending POST request to background script");
+      console.log("📤 [ISOLATED] Message being sent:", {
+        action: "postToSupabase",
+        data: payload.data,
+      });
+
+      const response = await chrome.runtime.sendMessage({
+        action: "postToSupabase",
+        data: payload.data,
+      });
+
+      console.log("📨 [ISOLATED] Background script POST response:", response);
+
+      if (response && response.success) {
+        console.log("✅ [ISOLATED] POST request successful!");
+        if (response.data) {
+          console.log("📊 [ISOLATED] POST response data:", response.data);
+        }
+      } else {
+        console.error(
+          "❌ [ISOLATED] POST request failed:",
+          response?.error || "Unknown error"
+        );
+      }
+    } else {
+      console.error("❌ [ISOLATED] Unknown POST action:", payload.action);
+    }
+  } catch (error) {
+    console.error("❌ [ISOLATED] Error handling POST request:", error);
   }
 }
